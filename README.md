@@ -37,21 +37,25 @@ go build -o rtl_tcp_echo
 ### Playback Mode (Serve Recorded IQ Data)
 
 ```sh
-./rtl_tcp_echo --mode=playback --listen=:1234 --playback=iq_recording.bin
+./rtl_tcp_echo --mode=playback --listen=:1234 --playback=iq_recording.bin --samplerate=2400000
 ```
 
-- `--listen`   : Address for SDR software to connect to.
-- `--playback` : IQ file to serve.
+- `--listen`     : Address for SDR software to connect to.
+- `--playback`   : IQ file to serve.
+- `--samplerate` : Sample rate in Hz (must match the rate used during recording).
+
+**Important:** The `--samplerate` flag is critical for proper playback timing. For digital modes like DMR, P25 Phase 2, and other TDMA-based protocols, the sample rate must match exactly what was used during recording to maintain proper timing synchronization.
 
 ## Command-Line Flags
 
-| Flag        | Description                                  | Default                |
-|-------------|----------------------------------------------|------------------------|
-| `--mode`    | `proxy` (default) or `playback`              | `proxy`                |
-| `--listen`  | Listen address                               | `0.0.0.0:1234`         |
-| `--forward` | Forward address (proxy mode only)            | `127.0.0.1:1234`       |
-| `--record`  | IQ recording file (proxy mode only)          | `iq_recording.bin`     |
-| `--playback`| Playback IQ file (playback mode only)        | `iq_recording.bin`     |
+| Flag          | Description                                  | Default                |
+|---------------|----------------------------------------------|------------------------|
+| `--mode`      | `proxy` (default) or `playback`              | `proxy`                |
+| `--listen`    | Listen address                               | `0.0.0.0:1234`         |
+| `--forward`   | Forward address (proxy mode only)            | `127.0.0.1:1234`       |
+| `--record`    | IQ recording file (proxy mode only)          | `iq_recording.bin`     |
+| `--playback`  | Playback IQ file (playback mode only)        | `iq_recording.bin`     |
+| `--samplerate`| Sample rate in Hz (playback mode only)       | `2400000`              |
 
 ## Example Workflow
 

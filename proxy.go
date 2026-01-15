@@ -35,8 +35,8 @@ func handleProxyConn(clientConn net.Conn, forwardAddr, recordFile string) {
 	}
 	defer serverConn.Close()
 
-	// Open IQ recording file
-	recordF, err := os.OpenFile(recordFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	// Open IQ recording file (truncate to start fresh)
+	recordF, err := os.OpenFile(recordFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		log.Printf("Could not open recording file: %v", err)
 		return
@@ -57,12 +57,27 @@ func handleProxyConn(clientConn net.Conn, forwardAddr, recordFile string) {
 	// Proxy server->client (IQ samples), record IQ
 	go func() {
 		buf := make([]byte, 32*1024)
+		headerSkipped := false
 		for {
 			n, err := serverConn.Read(buf)
 			if n > 0 {
-				// Write IQ data to file
-				_, _ = recordF.Write(buf[:n])
-				// Forward to client
+				data := buf[:n]
+				// Skip the 12-byte rtl_tcp header on first read
+				if !headerSkipped {
+					if n >= 12 {
+						data = buf[12:n]
+						headerSkipped = true
+					} else {
+						// Header split across reads - skip what we have
+						headerSkipped = true
+						data = nil
+					}
+				}
+				// Write pure IQ data to file
+				if len(data) > 0 {
+					_, _ = recordF.Write(data)
+				}
+				// Forward original data (with header) to client
 				_, err2 := clientConn.Write(buf[:n])
 				if err2 != nil {
 					log.Printf("Server->Client write error: %v", err2)

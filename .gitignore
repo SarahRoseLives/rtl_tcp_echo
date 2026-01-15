@@ -1,0 +1,11 @@
+# IQ recordings
+*.bin
+
+# Compiled binary
+rtl_tcp_echo
+
+# IDE
+.idea/
+
+# Backup files
+backup/
