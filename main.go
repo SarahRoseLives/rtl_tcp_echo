@@ -18,11 +18,11 @@ func main() {
 	)
 
 	flag.StringVar(&mode, "mode", "proxy", "Mode: proxy or playback")
-	flag.StringVar(&listen, "listen", "0.0.0.0:1234", "Listen address (proxy or playback)")
+	flag.StringVar(&listen, "listen", "0.0.0.0:1235", "Listen address (proxy or playback)")
 	flag.StringVar(&forward, "forward", "127.0.0.1:1234", "Forward address (proxy mode only)")
 	flag.StringVar(&record, "record", "iq_recording.bin", "IQ recording file (proxy mode only)")
 	flag.StringVar(&playbackF, "playback", "iq_recording.bin", "Playback IQ file (playback mode only)")
-	flag.UintVar(&samplerate, "samplerate", 2400000, "Sample rate in Hz (playback mode only)")
+	flag.UintVar(&samplerate, "samplerate", 1536000, "Sample rate in Hz (playback mode only)")
 	flag.Parse()
 
 	// Set sample rate for playback

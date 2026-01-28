@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"sync/atomic"
 	"time"
 )
 
@@ -27,6 +26,10 @@ func runPlayback(listenAddr, playbackFile string) {
 			log.Printf("Accept error: %v", err)
 			continue
 		}
+		// Enable TCP_NODELAY for low-latency streaming (important for DMR timing)
+		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
+			_ = tcpConn.SetNoDelay(true)
+		}
 		go handlePlaybackConn(clientConn, playbackFile)
 	}
 }
@@ -42,7 +45,7 @@ func handlePlaybackConn(clientConn net.Conn, playbackFile string) {
 	defer f.Close()
 
 	// Default sample rate (can be overridden via -samplerate flag)
-	var sampleRate uint32 = 2400000
+	var sampleRate uint32 = 1536000 // Default for DSD-Neo DMR
 	if playbackSampleRate > 0 {
 		sampleRate = playbackSampleRate
 	}
@@ -59,11 +62,8 @@ func handlePlaybackConn(clientConn net.Conn, playbackFile string) {
 		return
 	}
 
-	// Atomic sample rate for command handler to update
-	var currentRate atomic.Uint32
-	currentRate.Store(sampleRate)
-
 	// Consume client commands in background to prevent blocking
+	// NOTE: We log but ignore sample rate changes since the recording was made at a fixed rate
 	go func() {
 		cmd := make([]byte, 5)
 		for {
@@ -71,44 +71,69 @@ func handlePlaybackConn(clientConn net.Conn, playbackFile string) {
 			if err != nil {
 				return
 			}
-			// Parse sample rate command (0x02)
+			// Log sample rate command (0x02) but don't change playback rate
+			// The recording was made at a fixed rate - changing it would corrupt timing
 			if cmd[0] == 0x02 {
-				newRate := binary.BigEndian.Uint32(cmd[1:5])
-				if newRate > 0 {
-					currentRate.Store(newRate)
-					log.Printf("Client requested sample rate: %d Hz", newRate)
+				requestedRate := binary.BigEndian.Uint32(cmd[1:5])
+				if requestedRate != sampleRate {
+					log.Printf("Client requested sample rate %d Hz (ignoring - playback locked at %d Hz)", requestedRate, sampleRate)
 				}
 			}
 		}
 	}()
 
-	// IQ data is 2 bytes per sample (I + Q as unsigned 8-bit each)
-	const bytesPerSample = 2
-	buf := make([]byte, 16384) // Smaller buffer for more precise timing
-
+	// Play back IQ data with original timing
+	// File format: [8-byte timestamp ns][4-byte length][data] repeating
+	startTime := time.Now()
+	var lastTimestamp int64 = 0
+	
 	for {
-		n, err := f.Read(buf)
-		if n > 0 {
-			_, err2 := clientConn.Write(buf[:n])
-			if err2 != nil {
-				log.Printf("Client write error: %v", err2)
-				break
-			}
-
-			// Calculate sleep based on sample rate
-			// samples = bytes / 2, time = samples / sample_rate
-			rate := currentRate.Load()
-			samples := float64(n) / float64(bytesPerSample)
-			sleepDuration := time.Duration(samples / float64(rate) * float64(time.Second))
-			time.Sleep(sleepDuration)
-		}
+		// Read timestamp (8 bytes)
+		tsBytes := make([]byte, 8)
+		_, err := io.ReadFull(f, tsBytes)
 		if err == io.EOF {
 			log.Printf("Playback complete")
 			break
 		}
 		if err != nil {
-			log.Printf("Playback read error: %v", err)
+			log.Printf("Timestamp read error: %v", err)
 			break
 		}
+		timestamp := int64(binary.LittleEndian.Uint64(tsBytes))
+		
+		// Read data length (4 bytes)
+		lenBytes := make([]byte, 4)
+		_, err = io.ReadFull(f, lenBytes)
+		if err != nil {
+			log.Printf("Length read error: %v", err)
+			break
+		}
+		dataLen := binary.LittleEndian.Uint32(lenBytes)
+		
+		// Read IQ data
+		data := make([]byte, dataLen)
+		_, err = io.ReadFull(f, data)
+		if err != nil {
+			log.Printf("Data read error: %v", err)
+			break
+		}
+		
+		// Wait until the correct time to send this chunk
+		targetTime := time.Duration(timestamp)
+		elapsed := time.Since(startTime)
+		if targetTime > elapsed {
+			time.Sleep(targetTime - elapsed)
+		}
+		
+		// Send data to client
+		_, err = clientConn.Write(data)
+		if err != nil {
+			log.Printf("Client write error: %v", err)
+			break
+		}
+		
+		lastTimestamp = timestamp
 	}
+	
+	log.Printf("Played back data over %.3f seconds", float64(lastTimestamp)/1e9)
 }

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/binary"
 	"io"
 	"log"
 	"net"
 	"os"
+	"time"
 )
 
 // runProxy listens for a client, connects to the real rtl_tcp server, and proxies all data.
@@ -54,10 +56,12 @@ func handleProxyConn(clientConn net.Conn, forwardAddr, recordFile string) {
 		done <- struct{}{}
 	}()
 
-	// Proxy server->client (IQ samples), record IQ
+	// Proxy server->client (IQ samples), record IQ with timestamps
 	go func() {
 		buf := make([]byte, 32*1024)
 		headerSkipped := false
+		startTime := time.Now()
+		
 		for {
 			n, err := serverConn.Read(buf)
 			if n > 0 {
@@ -73,8 +77,21 @@ func handleProxyConn(clientConn net.Conn, forwardAddr, recordFile string) {
 						data = nil
 					}
 				}
-				// Write pure IQ data to file
+				// Write timestamped chunk: [8-byte timestamp ns][4-byte length][data]
 				if len(data) > 0 {
+					timestamp := time.Since(startTime).Nanoseconds()
+					
+					// Write timestamp (8 bytes, little-endian)
+					tsBytes := make([]byte, 8)
+					binary.LittleEndian.PutUint64(tsBytes, uint64(timestamp))
+					_, _ = recordF.Write(tsBytes)
+					
+					// Write data length (4 bytes, little-endian)
+					lenBytes := make([]byte, 4)
+					binary.LittleEndian.PutUint32(lenBytes, uint32(len(data)))
+					_, _ = recordF.Write(lenBytes)
+					
+					// Write IQ data
 					_, _ = recordF.Write(data)
 				}
 				// Forward original data (with header) to client
